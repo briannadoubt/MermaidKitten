@@ -6,535 +6,460 @@
 //
 
 import Foundation
-import SourceKittenFramework
+import SwiftSyntax
+import SwiftParser
 import ArgumentParser
-
-typealias Substructure = [SourceDictionary]
-typealias SourceDictionary = [String: SourceKitRepresentable]
 
 @main
 struct MermaidGenerator: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Generate Mermaid class diagrams from Swift source code."
+    )
+
     @Argument(help: "Path to the directory containing Swift files.")
     var directory: String
 
     @Option(name: .shortAndLong, help: "Output file for the mermaid diagram.")
     var output: String?
 
-    private var factory = ClassDiagramFactory()
+    @Option(name: .shortAndLong, help: "Title for the diagram.")
+    var title: String?
 
-    func run() async throws {
+    func run() throws {
         let files = getAllSwiftFiles(path: directory)
-        try await parse(files: files)
-        try await output(factory.diagram())
+        let diagram = try generateDiagram(from: files)
+        try write(diagram: diagram)
     }
 
-    private func getAllSwiftFiles(path: String) -> [File] {
-        var swiftFiles = [File]()
+    private func getAllSwiftFiles(path: String) -> [URL] {
+        var swiftFiles: [URL] = []
         let fileManager = FileManager.default
+        let url = URL(fileURLWithPath: path)
 
-        guard let enumerator = fileManager.enumerator(atPath: path) else {
+        guard let enumerator = fileManager.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
             print("Failed to get enumerator for directory: \(path)")
             return swiftFiles
         }
 
-        while let element = enumerator.nextObject() as? String {
-            if element.hasSuffix(".swift") {
-                swiftFiles.append(File(path: "\(path)/\(element)")!)
+        for case let fileURL as URL in enumerator {
+            if fileURL.pathExtension == "swift" {
+                swiftFiles.append(fileURL)
             }
         }
 
         return swiftFiles
     }
 
-    private func parse(files: [File]) async throws {
-        for file in files {
-            try await parse(file: file)
+    private func generateDiagram(from files: [URL]) throws -> String {
+        let collector = TypeCollector()
+
+        for fileURL in files {
+            let source = try String(contentsOf: fileURL, encoding: .utf8)
+            let syntax = Parser.parse(source: source)
+            collector.walk(syntax)
         }
+
+        return collector.buildDiagram(title: title ?? "Class Diagram")
     }
 
-    private func parse(file: File) async throws {
-        let structure = try Structure(file: file)
-        let dictionary = structure.dictionary
-        await parse(topLevel: dictionary)
-    }
-
-    private func parse(topLevel dictionary: SourceDictionary) async {
-        for (rawKey, value) in dictionary {
-            guard let key = SwiftDocKey(rawValue: rawKey) else {
-                continue
-            }
-            let diagramNode = parse(key: key, value: value, name: nil)
-            await factory.add(node: diagramNode)
-        }
-    }
-
-    private func parse(enumCases substructure: Substructure, for name: String) -> String {
-        var string = ""
-        for structure in substructure {
-            guard
-                let value = structure[SwiftDocKey.kind.rawValue] as? String,
-                let kind = SwiftDeclarationKind(rawValue: value),
-                kind == .enumcase,
-                let enumElement = structure[SwiftDocKey.substructure.rawValue] as? Substructure
-            else {
-                continue
-            }
-            for element in enumElement {
-                guard let elementName = element[SwiftDocKey.name.rawValue] else {
-                    continue
-                }
-                string.append("\(name) \(element)\n\t")
-            }
-        }
-    }
-
-    private func parse(inheritedTypes substructure: Substructure, for name: String) -> String {
-        var string = ""
-        for structure in substructure {
-            guard let inheritedType = structure[SwiftDocKey.name.rawValue] else {
-                continue
-            }
-            string.append(name <|-- inheritedType)
-            string.append("\n\t")
-        }
-        return string
-    }
-
-    private func parse(enum substructure: SourceDictionary, name: String) -> String {
-        var string = """
-            class `\(name)`
-            <<enum>> `\(name)`
-        """
-        if let inheritedTypes = substructure[SwiftDocKey.inheritedtypes.rawValue] as? Substructure {
-            string.append(parse(key: .inheritedtypes, value: inheritedTypes, name: name))
-        }
-        if let docs = substructure[SwiftDocKey.documentationComment.rawValue] {
-            string.append("note for `\(name)` \"\(docs)\"")
-        }
-        return string
-    }
-
-    private func parse(dictionary: SourceDictionary, name: String?) -> String {
-        dictionary.map { rawKey, value in
-            guard let key = SwiftDocKey(rawValue: rawKey) else {
-                return ""
-            }
-            return parse(key: key, value: value, name: name)
-        }
-        .joined(separator: "\n\t")
-    }
-
-    private func parse(key: SwiftDocKey, value: SourceKitRepresentable, name: String?) -> String {
-        switch key {
-        case .annotatedDeclaration:
-            break
-        case .bodyLength:
-            break
-        case .bodyOffset:
-            break
-        case .diagnosticStage:
-            break
-        case .elements:
-            break
-        case .filePath:
-            break
-        case .fullXMLDocs:
-            break
-        case .kind:
-            break
-        case .length:
-            break
-        case .name:
-            break
-        case .nameLength:
-            break
-        case .nameOffset:
-            break
-        case .offset:
-            break
-        case .substructure:
-            if let substructure = value as? Substructure {
-                return parse(substructure: substructure)
-            }
-        case .syntaxMap:
-            break
-        case .typeName:
-            return value as? String ?? ""
-        case .inheritedtypes:
-            if
-                let inheritedTypes = value as? Substructure,
-                let name
-            {
-                return parse(inheritedTypes: inheritedTypes, for: name)
-            }
-        case .docColumn:
-            break
-        case .documentationComment:
-            break
-        case .docDeclaration:
-            break
-        case .docDiscussion:
-            break
-        case .docFile:
-            break
-        case .docLine:
-            break
-        case .docName:
-            break
-        case .docParameters:
-            break
-        case .docResultDiscussion:
-            break
-        case .docType:
-            break
-        case .usr:
-            break
-        case .parsedDeclaration:
-            break
-        case .parsedScopeEnd:
-            break
-        case .parsedScopeStart:
-            break
-        case .swiftDeclaration:
-            break
-        case .swiftName:
-            break
-        case .alwaysDeprecated:
-            break
-        case .alwaysUnavailable:
-            break
-        case .deprecationMessage:
-            break
-        case .unavailableMessage:
-            break
-        case .annotations:
-            break
-        case .attributes:
-            break
-        case .attribute:
-            break
-        }
-        return ""
-    }
-
-    private func parse(substructure: Substructure) -> String {
-        for structure in substructure {
-            guard
-                let rawName = structure[SwiftDocKey.name.rawValue],
-                let rawKind = structure[SwiftDocKey.kind.rawValue] as? String,
-                let kind = SwiftDeclarationKind(rawValue: rawKind)
-            else {
-                continue
-            }
-            let name = "`\(rawName)`"
-            switch kind {
-            case .associatedtype:
-                break
-            case .class:
-                break
-            case .enum:
-                return parse(enum: structure, name: name)
-            case .enumcase:
-                return parse(enumCases: substructure, for: name)
-            case .enumelement:
-                break
-            case .extension:
-                break
-            case .extensionClass:
-                break
-            case .extensionEnum:
-                break
-            case .extensionProtocol:
-                break
-            case .extensionStruct:
-                break
-            case .functionAccessorAddress:
-                break
-            case .functionAccessorDidset:
-                break
-            case .functionAccessorGetter:
-                break
-            case .functionAccessorModify:
-                break
-            case .functionAccessorMutableaddress:
-                break
-            case .functionAccessorRead:
-                break
-            case .functionAccessorSetter:
-                break
-            case .functionAccessorWillset:
-                break
-            case .functionConstructor:
-                break
-            case .functionDestructor:
-                break
-            case .functionFree:
-                break
-            case .functionMethodClass:
-                break
-            case .functionMethodInstance:
-                break
-            case .functionMethodStatic:
-                break
-            case .functionOperator:
-                break
-            case .functionOperatorInfix:
-                break
-            case .functionOperatorPostfix:
-                break
-            case .functionOperatorPrefix:
-                break
-            case .functionSubscript:
-                break
-            case .genericTypeParam:
-                break
-            case .module:
-                break
-            case .opaqueType:
-                break
-            case .precedenceGroup:
-                break
-            case .protocol:
-                break
-            case .struct:
-                break
-            case .typealias:
-                break
-            case .varClass:
-                break
-            case .varGlobal:
-                break
-            case .varInstance:
-                break
-            case .varLocal:
-                break
-            case .varParameter:
-                break
-            case .varStatic:
-                break
-            }
-        }
-    }
-
-    private func output(_ graph: String) throws {
+    private func write(diagram: String) throws {
         guard let output = output else {
-            print(graph)
+            print(diagram)
             return
         }
 
         let url = URL(fileURLWithPath: output)
-        try graph.write(to: url, atomically: true, encoding: String.Encoding.utf8)
+        try diagram.write(to: url, atomically: true, encoding: .utf8)
     }
 }
 
-actor ClassDiagramFactory: Decodable {
+// MARK: - Type Collector
 
-    var nodes: [String] = []
+final class TypeCollector: SyntaxVisitor {
+    private(set) var types: [TypeDeclaration] = []
+    private(set) var extensions: [ExtensionDeclaration] = []
 
-    enum CodingKeys: CodingKey {
-        case nodes
+    init() {
+        super.init(viewMode: .sourceAccurate)
     }
 
-    @ClassDiagramBuilder func diagram() -> String {
-        nodes
+    override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
+        let typeDecl = TypeDeclaration(
+            kind: .class,
+            name: node.name.text,
+            inheritedTypes: extractInheritedTypes(from: node.inheritanceClause),
+            members: extractMembers(from: node.memberBlock),
+            genericParameters: extractGenericParameters(from: node.genericParameterClause)
+        )
+        types.append(typeDecl)
+        return .visitChildren
     }
 
-    func add(node: String) {
-        if !nodes.contains(node) {
-            nodes.append(node)
-        }
-    }
-}
-
-@resultBuilder
-public struct ClassDiagramBuilder {
-    private static func title() -> String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as! String
-    }
-
-    public static func buildFinalResult(_ component: String) -> String {
-        """
-        ---
-        title: \(title())
-        ---
-        classDiagram
-            \(component)
-        """
+    override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
+        let typeDecl = TypeDeclaration(
+            kind: .struct,
+            name: node.name.text,
+            inheritedTypes: extractInheritedTypes(from: node.inheritanceClause),
+            members: extractMembers(from: node.memberBlock),
+            genericParameters: extractGenericParameters(from: node.genericParameterClause)
+        )
+        types.append(typeDecl)
+        return .visitChildren
     }
 
-    public static func buildOptional(_ component: String?) -> String {
-        component ?? ""
+    override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
+        let typeDecl = TypeDeclaration(
+            kind: .enum,
+            name: node.name.text,
+            inheritedTypes: extractInheritedTypes(from: node.inheritanceClause),
+            members: extractMembers(from: node.memberBlock),
+            genericParameters: extractGenericParameters(from: node.genericParameterClause)
+        )
+        types.append(typeDecl)
+        return .visitChildren
     }
 
-    public static func buildArray(_ components: [String]) -> String {
-        removeDuplicates(array: components)
-            .joined(separator: "\n\t")
+    override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind {
+        let typeDecl = TypeDeclaration(
+            kind: .protocol,
+            name: node.name.text,
+            inheritedTypes: extractInheritedTypes(from: node.inheritanceClause),
+            members: extractMembers(from: node.memberBlock),
+            genericParameters: []
+        )
+        types.append(typeDecl)
+        return .visitChildren
     }
 
-    public static func buildBlock(_ components: String...) -> String {
-        buildArray(components)
+    override func visit(_ node: ActorDeclSyntax) -> SyntaxVisitorContinueKind {
+        let typeDecl = TypeDeclaration(
+            kind: .actor,
+            name: node.name.text,
+            inheritedTypes: extractInheritedTypes(from: node.inheritanceClause),
+            members: extractMembers(from: node.memberBlock),
+            genericParameters: extractGenericParameters(from: node.genericParameterClause)
+        )
+        types.append(typeDecl)
+        return .visitChildren
     }
 
-    public static func buildBlock(_ components: [String]...) -> String {
-        buildArray(components.flatMap({ $0 }))
+    override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+        let extDecl = ExtensionDeclaration(
+            extendedType: node.extendedType.trimmedDescription,
+            inheritedTypes: extractInheritedTypes(from: node.inheritanceClause),
+            members: extractMembers(from: node.memberBlock)
+        )
+        extensions.append(extDecl)
+        return .visitChildren
     }
 
-    private static func removeDuplicates(array: [String]) -> [String] {
-        var encountered = Set<String>()
-        var result: [String] = []
-        for value in array {
-            if !encountered.contains(value) {
-                encountered.insert(value)
-                result.append(value)
+    // MARK: - Extraction Helpers
+
+    private func extractInheritedTypes(from clause: InheritanceClauseSyntax?) -> [String] {
+        guard let clause = clause else { return [] }
+        return clause.inheritedTypes.map { $0.type.trimmedDescription }
+    }
+
+    private func extractGenericParameters(from clause: GenericParameterClauseSyntax?) -> [String] {
+        guard let clause = clause else { return [] }
+        return clause.parameters.map { $0.name.text }
+    }
+
+    private func extractMembers(from memberBlock: MemberBlockSyntax) -> [MemberDeclaration] {
+        var members: [MemberDeclaration] = []
+
+        for member in memberBlock.members {
+            if let varDecl = member.decl.as(VariableDeclSyntax.self) {
+                for binding in varDecl.bindings {
+                    guard let identifier = binding.pattern.as(IdentifierPatternSyntax.self) else { continue }
+                    let typeName = binding.typeAnnotation?.type.trimmedDescription
+                    let accessLevel = extractAccessLevel(from: varDecl.modifiers)
+                    let isStatic = hasStaticModifier(varDecl.modifiers)
+
+                    members.append(MemberDeclaration(
+                        kind: .property,
+                        name: identifier.identifier.text,
+                        type: typeName,
+                        accessLevel: accessLevel,
+                        isStatic: isStatic
+                    ))
+                }
+            } else if let funcDecl = member.decl.as(FunctionDeclSyntax.self) {
+                let accessLevel = extractAccessLevel(from: funcDecl.modifiers)
+                let isStatic = hasStaticModifier(funcDecl.modifiers)
+                let returnType = funcDecl.signature.returnClause?.type.trimmedDescription
+                let parameters = funcDecl.signature.parameterClause.parameters.map { param -> String in
+                    let name = param.firstName.text
+                    let type = param.type.trimmedDescription
+                    return "\(name): \(type)"
+                }
+
+                members.append(MemberDeclaration(
+                    kind: .method,
+                    name: "\(funcDecl.name.text)(\(parameters.joined(separator: ", ")))",
+                    type: returnType,
+                    accessLevel: accessLevel,
+                    isStatic: isStatic
+                ))
+            } else if let initDecl = member.decl.as(InitializerDeclSyntax.self) {
+                let accessLevel = extractAccessLevel(from: initDecl.modifiers)
+                let parameters = initDecl.signature.parameterClause.parameters.map { param -> String in
+                    let name = param.firstName.text
+                    let type = param.type.trimmedDescription
+                    return "\(name): \(type)"
+                }
+
+                members.append(MemberDeclaration(
+                    kind: .initializer,
+                    name: "init(\(parameters.joined(separator: ", ")))",
+                    type: nil,
+                    accessLevel: accessLevel,
+                    isStatic: false
+                ))
             }
         }
-        return result
+
+        return members
+    }
+
+    private func extractAccessLevel(from modifiers: DeclModifierListSyntax) -> AccessLevel {
+        for modifier in modifiers {
+            switch modifier.name.text {
+            case "public": return .public
+            case "private": return .private
+            case "fileprivate": return .fileprivate
+            case "internal": return .internal
+            case "open": return .open
+            default: continue
+            }
+        }
+        return .internal
+    }
+
+    private func hasStaticModifier(_ modifiers: DeclModifierListSyntax) -> Bool {
+        modifiers.contains { $0.name.text == "static" || $0.name.text == "class" }
+    }
+
+    // MARK: - Diagram Building
+
+    func buildDiagram(title: String) -> String {
+        var lines: [String] = []
+        lines.append("---")
+        lines.append("title: \(title)")
+        lines.append("---")
+        lines.append("classDiagram")
+
+        // Collect all known type names for relationship filtering
+        let knownTypes = Set(types.map { $0.name })
+
+        // Add type declarations
+        for type in types {
+            lines.append(contentsOf: type.mermaidLines(knownTypes: knownTypes))
+        }
+
+        // Add extension relationships
+        for ext in extensions {
+            for inherited in ext.inheritedTypes {
+                if knownTypes.contains(inherited) || isCommonProtocol(inherited) {
+                    lines.append("    \(ext.extendedType) ..|> \(inherited) : conforms")
+                }
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func isCommonProtocol(_ name: String) -> Bool {
+        let common = ["Equatable", "Hashable", "Codable", "Decodable", "Encodable",
+                      "Comparable", "Identifiable", "Sendable", "CustomStringConvertible",
+                      "Error", "LocalizedError", "Collection", "Sequence"]
+        return common.contains(name)
     }
 }
 
-// MARK: Inheritence
+// MARK: - Data Models
 
-infix operator <|--
-public func <|--<L, R>(lhs: L, rhs: R) -> String {
-    return String(describing: lhs) + " <|-- " + String(describing: rhs)
+enum TypeKind: String {
+    case `class`
+    case `struct`
+    case `enum`
+    case `protocol`
+    case actor
 }
 
-infix operator --|>
-public func --|><L, R>(lhs: L, rhs: R) -> String {
-    return String(describing: lhs) + " --|> " + String(describing: rhs)
+enum AccessLevel: String {
+    case `public` = "+"
+    case `internal` = "~"
+    case `private` = "-"
+    case `fileprivate` = "-"
+    case `open` = "+"
 }
 
-infix operator <|--|>
-public func <|--|><L, R>(lhs: L, rhs: R) -> String {
-    String(describing: lhs) + " <|--|> " + String(describing: rhs)
+enum MemberKind {
+    case property
+    case method
+    case initializer
+}
+
+struct MemberDeclaration {
+    let kind: MemberKind
+    let name: String
+    let type: String?
+    let accessLevel: AccessLevel
+    let isStatic: Bool
+
+    var mermaidLine: String {
+        let staticPrefix = isStatic ? "$" : ""
+        let typeStr = type.map { " \($0)" } ?? ""
+        switch kind {
+        case .property:
+            return "\(accessLevel.rawValue)\(staticPrefix)\(name)\(typeStr)"
+        case .method, .initializer:
+            return "\(accessLevel.rawValue)\(staticPrefix)\(name)\(typeStr)"
+        }
+    }
+}
+
+struct TypeDeclaration {
+    let kind: TypeKind
+    let name: String
+    let inheritedTypes: [String]
+    let members: [MemberDeclaration]
+    let genericParameters: [String]
+
+    func mermaidLines(knownTypes: Set<String>) -> [String] {
+        var lines: [String] = []
+
+        // Class definition with stereotype
+        let genericStr = genericParameters.isEmpty ? "" : "~\(genericParameters.joined(separator: ", "))~"
+        lines.append("    class \(name)\(genericStr) {")
+
+        // Add stereotype annotation
+        switch kind {
+        case .struct:
+            lines.append("        <<struct>>")
+        case .enum:
+            lines.append("        <<enum>>")
+        case .protocol:
+            lines.append("        <<protocol>>")
+        case .actor:
+            lines.append("        <<actor>>")
+        case .class:
+            break
+        }
+
+        // Add members
+        for member in members {
+            lines.append("        \(member.mermaidLine)")
+        }
+
+        lines.append("    }")
+
+        // Add inheritance/conformance relationships
+        for inherited in inheritedTypes {
+            let relationship: String
+            if knownTypes.contains(inherited) {
+                // Check if the inherited type is a protocol or class
+                relationship = "\(name) --|> \(inherited)"
+            } else {
+                // Assume protocol conformance for unknown types
+                relationship = "\(name) ..|> \(inherited)"
+            }
+            lines.append("    \(relationship)")
+        }
+
+        return lines
+    }
+}
+
+struct ExtensionDeclaration {
+    let extendedType: String
+    let inheritedTypes: [String]
+    let members: [MemberDeclaration]
+}
+
+// MARK: - Mermaid Relationship Operators
+
+// These operators provide a nice DSL for building relationships manually
+
+// MARK: Inheritance
+infix operator <|-- : AdditionPrecedence
+public func <|-- (lhs: String, rhs: String) -> String {
+    "\(lhs) <|-- \(rhs)"
+}
+
+infix operator --|> : AdditionPrecedence
+public func --|> (lhs: String, rhs: String) -> String {
+    "\(lhs) --|> \(rhs)"
 }
 
 // MARK: Composition
-
-infix operator *--
-public func *--<L, R>(lhs: L, rhs: R) -> String {
-    return """
-    \(String(describing: lhs) + " *-- " + String(describing: rhs))
-    """
+infix operator *-- : AdditionPrecedence
+public func *-- (lhs: String, rhs: String) -> String {
+    "\(lhs) *-- \(rhs)"
 }
 
-infix operator --*
-public func --*<L, R>(lhs: L, rhs: R) -> String {
-    return """
-    \(String(describing: lhs) + " --* " + String(describing: rhs))
-    """
-}
-
-infix operator *--*
-public func *--*<L, R>(lhs: L, rhs: R) -> String {
-    return """
-    \(String(describing: lhs) + " *--* " + String(describing: rhs))
-    """
+infix operator --* : AdditionPrecedence
+public func --* (lhs: String, rhs: String) -> String {
+    "\(lhs) --* \(rhs)"
 }
 
 // MARK: Aggregation
-
-infix operator •--
-public func •--<L, R>(lhs: L, rhs: R) -> String {
-    return """
-    \(String(describing: lhs) + " o-- " + String(describing: rhs))
-    """
+infix operator o-- : AdditionPrecedence
+public func o-- (lhs: String, rhs: String) -> String {
+    "\(lhs) o-- \(rhs)"
 }
 
-infix operator --•
-public func --•<L, R>(lhs: L, rhs: R) -> String {
-    return """
-    \(String(describing: lhs) + " --o " + String(describing: rhs))
-    """
-}
-
-infix operator •--•
-public func •--•<L, R>(lhs: L, rhs: R) -> String {
-    return """
-    \(String(describing: lhs) + " o--o " + String(describing: rhs))
-    """
+infix operator --o : AdditionPrecedence
+public func --o (lhs: String, rhs: String) -> String {
+    "\(lhs) --o \(rhs)"
 }
 
 // MARK: Association
-
-infix operator -->
-func --><L, R>(lhs: L, rhs: R) -> String {
-    return String(describing: lhs) + " --> " + String(describing: rhs)
+infix operator --> : AdditionPrecedence
+public func --> (lhs: String, rhs: String) -> String {
+    "\(lhs) --> \(rhs)"
 }
 
-infix operator <--
-func <--<L, R>(lhs: L, rhs: R) -> String {
-    return String(describing: lhs) + " <-- " + String(describing: rhs)
+infix operator <-- : AdditionPrecedence
+public func <-- (lhs: String, rhs: String) -> String {
+    "\(lhs) <-- \(rhs)"
 }
 
-infix operator <-->
-func <--><L, R>(lhs: L, rhs: R) -> String {
-    return """
-    \(String(describing: lhs) + " <--> " + String(describing: rhs))
-    """
+// MARK: Dependency (dashed)
+infix operator ..> : AdditionPrecedence
+public func ..> (lhs: String, rhs: String) -> String {
+    "\(lhs) ..> \(rhs)"
 }
 
-// MARK: Link (Solid)
-
-infix operator --
-func --<L, R>(lhs: L, rhs: R) -> String {
-    return String(describing: lhs) + " -- " + String(describing: rhs)
+infix operator <.. : AdditionPrecedence
+public func <.. (lhs: String, rhs: String) -> String {
+    "\(lhs) <.. \(rhs)"
 }
 
-// MARK: Dependency
-
-infix operator <••
-func <••<L, R>(lhs: L, rhs: R) -> String {
-    return String(describing: lhs) + " <.. " + String(describing: rhs)
+// MARK: Realization (dashed with arrow)
+infix operator ..|> : AdditionPrecedence
+public func ..|> (lhs: String, rhs: String) -> String {
+    "\(lhs) ..|> \(rhs)"
 }
 
-infix operator ••>
-func ••><L, R>(lhs: L, rhs: R) -> String {
-    return String(describing: lhs) + " ..> " + String(describing: rhs)
+infix operator <|.. : AdditionPrecedence
+public func <|.. (lhs: String, rhs: String) -> String {
+    "\(lhs) <|.. \(rhs)"
 }
 
-infix operator <••>
-func <••><L, R>(lhs: L, rhs: R) -> String {
-    return String(describing: lhs) + " <..> " + String(describing: rhs)
+// MARK: Link (solid)
+infix operator --- : AdditionPrecedence
+public func --- (lhs: String, rhs: String) -> String {
+    "\(lhs) -- \(rhs)"
 }
 
-// MARK: Realization
-
-infix operator <|••
-func <|••<L, R>(lhs: L, rhs: R) -> String {
-    return String(describing: lhs) + " <|.. " + String(describing: rhs)
-}
-
-infix operator ••|>
-func ••|><L, R>(lhs: L, rhs: R) -> String {
-    return String(describing: lhs) + " ..|> " + String(describing: rhs)
-}
-
-infix operator <|••|>
-func <|••|><L, R>(lhs: L, rhs: R) -> String {
-    return String(describing: lhs) + " <|..|> " + String(describing: rhs)
-}
-
-// Line (Dashed)
-infix operator ••
-func ••<L, R>(lhs: L, rhs: R) -> String {
-    return String(describing: lhs) + " .. " + String(describing: rhs)
-}
-
-@resultBuilder
-struct DiagramRelationship {
-    static func buildBlock(_ components: DiagramComponent...) -> String {
-        components.map(\.string).joined(separator: " ")
-    }
-}
-
-enum DiagramComponent {
-    case relationship(lhs: String, relationship: String, rhs: String)
-
-    var string: String {
-        switch self {
-        case .relationship(let lhs, let relationship, let rhs):
-            return lhs + relationship + rhs
-        }
-    }
+// MARK: Link (dashed)
+infix operator .. : AdditionPrecedence
+public func .. (lhs: String, rhs: String) -> String {
+    "\(lhs) .. \(rhs)"
 }
