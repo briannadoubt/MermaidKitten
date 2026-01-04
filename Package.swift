@@ -1,15 +1,16 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 
 import PackageDescription
 
 let package = Package(
     name: "MermaidKitten",
     platforms: [
-        .macOS(.v10_15),
-        .iOS(.v13),
-        .tvOS(.v13),
-        .watchOS(.v6),
-        .macCatalyst(.v13)
+        .macOS(.v13),
+        .iOS(.v16),
+        .tvOS(.v16),
+        .watchOS(.v9),
+        .macCatalyst(.v16),
+        .visionOS(.v1)
     ],
     products: [
         .executable(name: "MermaidGenerator", targets: ["MermaidGenerator"]),
@@ -17,7 +18,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.0"),
-        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
+        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
     ],
     targets: [
         .executableTarget(
@@ -26,6 +27,9 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
             ]
         ),
         .plugin(
@@ -37,6 +41,10 @@ let package = Package(
             dependencies: [
                 .target(name: "MermaidGenerator")
             ]
+        ),
+        .testTarget(
+            name: "MermaidGeneratorTests",
+            dependencies: ["MermaidGenerator"]
         ),
     ]
 )

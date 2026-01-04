@@ -79,7 +79,7 @@ struct MermaidGenerator: ParsableCommand {
 
 // MARK: - Type Collector
 
-final class TypeCollector: SyntaxVisitor {
+final class TypeCollector: SyntaxVisitor, @unchecked Sendable {
     private(set) var types: [TypeDeclaration] = []
     private(set) var extensions: [ExtensionDeclaration] = []
 
@@ -274,16 +274,18 @@ final class TypeCollector: SyntaxVisitor {
     }
 
     private func isCommonProtocol(_ name: String) -> Bool {
-        let common = ["Equatable", "Hashable", "Codable", "Decodable", "Encodable",
-                      "Comparable", "Identifiable", "Sendable", "CustomStringConvertible",
-                      "Error", "LocalizedError", "Collection", "Sequence"]
+        let common: Set<String> = [
+            "Equatable", "Hashable", "Codable", "Decodable", "Encodable",
+            "Comparable", "Identifiable", "Sendable", "CustomStringConvertible",
+            "Error", "LocalizedError", "Collection", "Sequence"
+        ]
         return common.contains(name)
     }
 }
 
 // MARK: - Data Models
 
-enum TypeKind: String {
+enum TypeKind: String, Sendable {
     case `class`
     case `struct`
     case `enum`
@@ -291,7 +293,7 @@ enum TypeKind: String {
     case actor
 }
 
-enum AccessLevel: String {
+enum AccessLevel: String, Sendable {
     case `public` = "+"
     case `internal` = "~"
     case `private` = "-"
@@ -299,13 +301,13 @@ enum AccessLevel: String {
     case `open` = "+"
 }
 
-enum MemberKind {
+enum MemberKind: Sendable {
     case property
     case method
     case initializer
 }
 
-struct MemberDeclaration {
+struct MemberDeclaration: Sendable {
     let kind: MemberKind
     let name: String
     let type: String?
@@ -315,16 +317,11 @@ struct MemberDeclaration {
     var mermaidLine: String {
         let staticPrefix = isStatic ? "$" : ""
         let typeStr = type.map { " \($0)" } ?? ""
-        switch kind {
-        case .property:
-            return "\(accessLevel.rawValue)\(staticPrefix)\(name)\(typeStr)"
-        case .method, .initializer:
-            return "\(accessLevel.rawValue)\(staticPrefix)\(name)\(typeStr)"
-        }
+        return "\(accessLevel.rawValue)\(staticPrefix)\(name)\(typeStr)"
     }
 }
 
-struct TypeDeclaration {
+struct TypeDeclaration: Sendable {
     let kind: TypeKind
     let name: String
     let inheritedTypes: [String]
@@ -363,10 +360,8 @@ struct TypeDeclaration {
         for inherited in inheritedTypes {
             let relationship: String
             if knownTypes.contains(inherited) {
-                // Check if the inherited type is a protocol or class
                 relationship = "\(name) --|> \(inherited)"
             } else {
-                // Assume protocol conformance for unknown types
                 relationship = "\(name) ..|> \(inherited)"
             }
             lines.append("    \(relationship)")
@@ -376,7 +371,7 @@ struct TypeDeclaration {
     }
 }
 
-struct ExtensionDeclaration {
+struct ExtensionDeclaration: Sendable {
     let extendedType: String
     let inheritedTypes: [String]
     let members: [MemberDeclaration]
