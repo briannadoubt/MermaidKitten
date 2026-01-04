@@ -1,6 +1,8 @@
 import Testing
 import Foundation
-@testable import MermaidGenerator
+import SwiftSyntax
+import SwiftParser
+@testable import MermaidGeneratorCore
 
 @Suite("MermaidGenerator Tests")
 struct MermaidGeneratorTests {
@@ -15,7 +17,7 @@ struct MermaidGeneratorTests {
         """
 
         let collector = TypeCollector()
-        let syntax = parseSource(source)
+        let syntax = Parser.parse(source: source)
         collector.walk(syntax)
 
         #expect(collector.types.count == 1)
@@ -34,7 +36,7 @@ struct MermaidGeneratorTests {
         """
 
         let collector = TypeCollector()
-        let syntax = parseSource(source)
+        let syntax = Parser.parse(source: source)
         collector.walk(syntax)
 
         #expect(collector.types.count == 1)
@@ -52,7 +54,7 @@ struct MermaidGeneratorTests {
         """
 
         let collector = TypeCollector()
-        let syntax = parseSource(source)
+        let syntax = Parser.parse(source: source)
         collector.walk(syntax)
 
         #expect(collector.types.count == 1)
@@ -69,7 +71,7 @@ struct MermaidGeneratorTests {
         """
 
         let collector = TypeCollector()
-        let syntax = parseSource(source)
+        let syntax = Parser.parse(source: source)
         collector.walk(syntax)
 
         #expect(collector.types.count == 1)
@@ -86,7 +88,7 @@ struct MermaidGeneratorTests {
         """
 
         let collector = TypeCollector()
-        let syntax = parseSource(source)
+        let syntax = Parser.parse(source: source)
         collector.walk(syntax)
 
         #expect(collector.types.count == 1)
@@ -102,7 +104,7 @@ struct MermaidGeneratorTests {
         """
 
         let collector = TypeCollector()
-        let syntax = parseSource(source)
+        let syntax = Parser.parse(source: source)
         collector.walk(syntax)
 
         #expect(collector.types.count == 2)
@@ -120,7 +122,7 @@ struct MermaidGeneratorTests {
         """
 
         let collector = TypeCollector()
-        let syntax = parseSource(source)
+        let syntax = Parser.parse(source: source)
         collector.walk(syntax)
 
         #expect(collector.types.count == 1)
@@ -135,7 +137,7 @@ struct MermaidGeneratorTests {
         """
 
         let collector = TypeCollector()
-        let syntax = parseSource(source)
+        let syntax = Parser.parse(source: source)
         collector.walk(syntax)
 
         #expect(collector.types.count == 1)
@@ -154,7 +156,7 @@ struct MermaidGeneratorTests {
         """
 
         let collector = TypeCollector()
-        let syntax = parseSource(source)
+        let syntax = Parser.parse(source: source)
         collector.walk(syntax)
 
         let diagram = collector.buildDiagram(title: "Test Diagram")
@@ -177,7 +179,7 @@ struct MermaidGeneratorTests {
         """
 
         let collector = TypeCollector()
-        let syntax = parseSource(source)
+        let syntax = Parser.parse(source: source)
         collector.walk(syntax)
 
         let members = collector.types.first?.members ?? []
@@ -200,7 +202,7 @@ struct MermaidGeneratorTests {
         """
 
         let collector = TypeCollector()
-        let syntax = parseSource(source)
+        let syntax = Parser.parse(source: source)
         collector.walk(syntax)
 
         let members = collector.types.first?.members ?? []
@@ -210,13 +212,19 @@ struct MermaidGeneratorTests {
         #expect(staticMember?.isStatic == true)
         #expect(instanceMember?.isStatic == false)
     }
-}
 
-// MARK: - Helper
+    @Test("generateDiagram function works with source string")
+    func testGenerateDiagramFunction() throws {
+        let source = """
+        struct Hello {
+            var world: String
+        }
+        """
 
-import SwiftSyntax
-import SwiftParser
+        let diagram = generateDiagram(from: source, title: "Test")
 
-private func parseSource(_ source: String) -> SourceFileSyntax {
-    Parser.parse(source: source)
+        #expect(diagram.contains("title: Test"))
+        #expect(diagram.contains("class Hello"))
+        #expect(diagram.contains("<<struct>>"))
+    }
 }

@@ -13,6 +13,7 @@ let package = Package(
         .visionOS(.v1)
     ],
     products: [
+        .library(name: "MermaidGeneratorCore", targets: ["MermaidGeneratorCore"]),
         .executable(name: "MermaidGenerator", targets: ["MermaidGenerator"]),
         .plugin(name: "MermaidKitten", targets: ["MermaidKitten"]),
     ],
@@ -21,11 +22,20 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
     ],
     targets: [
-        .executableTarget(
-            name: "MermaidGenerator",
+        .target(
+            name: "MermaidGeneratorCore",
             dependencies: [
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .executableTarget(
+            name: "MermaidGenerator",
+            dependencies: [
+                "MermaidGeneratorCore",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             swiftSettings: [
@@ -44,7 +54,14 @@ let package = Package(
         ),
         .testTarget(
             name: "MermaidGeneratorTests",
-            dependencies: ["MermaidGenerator"]
+            dependencies: [
+                "MermaidGeneratorCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
         ),
     ]
 )
